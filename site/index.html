@@ -58,6 +58,12 @@ main { max-width: 1400px; margin: 0 auto; padding: 18px 16px 60px; }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 24px 0 10px; }
 .side .card { display: grid; grid-template-columns: 150px 1fr; gap: 10px; margin-bottom: 12px; }
 .side .card h3 { margin-top: 0; font-size: 14px; }
+.chip.on .meta { color: inherit; opacity: .8; }
+.cats { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+.stance { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; background: var(--chip); color: var(--muted); margin-left: 4px; }
+.catgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+.catgrid a { text-decoration: none; }
+.catgrid h3 { margin: 8px 0 0; font-size: 16px; }
 .empty { color: var(--muted); padding: 40px 0; }
 footer { color: var(--muted); font-size: 13px; max-width: 1400px; margin: 0 auto; padding: 0 16px 40px; }
 button.more { display: block; margin: 28px auto 0; }
@@ -69,6 +75,7 @@ button.more { display: block; margin: 28px auto 0; }
   <nav id="nav">
     <a href="#/" data-r="home">For you</a>
     <a href="#/top" data-r="top">Top</a>
+    <a href="#/categories" data-r="categories">Categories</a>
     <a href="#/liked" data-r="liked">Liked</a>
     <a href="#/later" data-r="later">Later</a>
     <a href="#/history" data-r="history">History</a>
@@ -83,7 +90,13 @@ const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem("lwt:" + k)) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem("lwt:" + k, JSON.stringify(v)); } catch {} },
 };
-let DATA = [], BY = {}, page = 0;
+let DATA = [], BY = {}, page = 0, cat = "";
+const CATS = {
+  "ai-safety": "AI safety", "ai": "AI & ML", "rationality": "Rationality & mind", "math-cs": "Math & CS",
+  "science": "Science", "philosophy": "Philosophy", "society": "Economics, politics & history",
+  "futures": "EA & futures", "self": "Health & self", "culture": "Culture & fun", "other": "Other",
+};
+const STANCE_LABEL = { mixed: "debated", critique: "critiqued" };
 const PAGE = 48;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const liked = () => store.get("liked", []);
@@ -97,10 +110,11 @@ function thumb(id) {
 }
 function card(v) {
   const seen = history().includes(v.id) ? " seen" : "";
-  const why = v.quotes[0]?.text ? `<div class="why">“${esc(v.quotes[0].text)}”</div>` : "";
+  const why = v.hook ? `<div class="why">${esc(v.hook)}</div>` : v.quotes[0]?.text ? `<div class="why">“${esc(v.quotes[0].text)}”</div>` : "";
+  const st = STANCE_LABEL[v.stance] ? `<span class="stance">${STANCE_LABEL[v.stance]}</span>` : "";
   return `<a class="card${seen}" href="#/v/${v.id}">
     <div class="thumb">${thumb(v.id)}<span class="badge">${v.people} ${v.people === 1 ? "rec" : "recs"}</span></div>
-    <div><h3>${esc(v.title)}</h3><div class="meta">${esc(v.channel)} · last mentioned ${v.last.slice(0, 4)}</div>${why}</div></a>`;
+    <div><h3>${esc(v.title)}</h3><div class="meta">${esc(v.channel)} · ${v.last.slice(0, 4)}${st}</div>${why}</div></a>`;
 }
 
 // "For you": base rank plus a boost from the neighbors of what you liked or watched.
@@ -120,12 +134,17 @@ let topSort = "score";
 function listView(title, items, opts = {}) {
   const app = document.getElementById("app");
   const q = document.getElementById("q").value.trim().toLowerCase();
-  if (q) items = items.filter(v => (v.title + " " + v.channel).toLowerCase().includes(q));
+  if (q) items = items.filter(v => (v.title + " " + v.channel + " " + (v.hook || "")).toLowerCase().includes(q));
+  const counts = {}; items.forEach(v => counts[v.category] = (counts[v.category] || 0) + 1);
+  if (cat) items = items.filter(v => v.category === cat);
+  const chips = opts.cats === false ? "" : `<div class="cats"><button class="chip ${cat ? "" : "on"}" data-cat="">All</button>${Object.entries(CATS).filter(([k]) => counts[k])
+    .map(([k, l]) => `<button class="chip ${cat === k ? "on" : ""}" data-cat="${k}">${l} <span class="meta">${counts[k]}</span></button>`).join("")}</div>`;
   const shown = items.slice(0, (page + 1) * PAGE);
-  app.innerHTML = `<div class="sub">${opts.sub || ""}<span>${items.length.toLocaleString()} videos</span></div>
+  app.innerHTML = `${chips}<div class="sub">${opts.sub || ""}<span>${items.length.toLocaleString()} videos</span></div>
     ${items.length ? `<div class="grid">${shown.map(card).join("")}</div>` : `<p class="empty">${opts.empty || "Nothing here yet."}</p>`}
     ${shown.length < items.length ? `<button class="chip more" id="more">Show more</button>` : ""}`;
   document.getElementById("more")?.addEventListener("click", () => { page++; route(true); });
+  app.querySelectorAll("[data-cat]").forEach(b => b.addEventListener("click", () => { cat = b.dataset.cat; page = 0; route(); }));
   app.querySelectorAll("[data-sort]").forEach(b => b.addEventListener("click", () => { topSort = b.dataset.sort; page = 0; route(); }));
 }
 
@@ -141,7 +160,8 @@ function watch(id) {
   app.innerHTML = `<div class="watch"><div>
       <iframe class="player" src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="${esc(v.title)}"></iframe>
       <h1>${esc(v.title)}</h1>
-      <div class="meta"><a href="${esc(v.channel_url)}" target="_blank" rel="noopener">${esc(v.channel)}</a> · recommended by ${v.people} ${v.people === 1 ? "person" : "people"} · ${v.mentions} mentions, ${v.first.slice(0, 4)}–${v.last.slice(0, 4)}</div>
+      <div class="meta"><a href="${esc(v.channel_url)}" target="_blank" rel="noopener">${esc(v.channel)}</a> · <a href="#/top" onclick="cat='${v.category}'">${CATS[v.category] || "Other"}</a>${STANCE_LABEL[v.stance] ? ` <span class="stance">${STANCE_LABEL[v.stance]}</span>` : ""} · recommended by ${v.people} ${v.people === 1 ? "person" : "people"} · ${v.mentions} mentions, ${v.first.slice(0, 4)}–${v.last.slice(0, 4)}</div>
+      ${v.hook ? `<p style="font:17px/1.5 'Source Serif 4',Georgia,serif;margin:10px 0 0">${esc(v.hook)}</p>` : ""}
       <div class="actions">
         <button class="chip ${liked().includes(id) ? "on" : ""}" id="like">${liked().includes(id) ? "Liked" : "Like"}</button>
         <button class="chip ${later().includes(id) ? "on" : ""}" id="later">${later().includes(id) ? "In watch later" : "Watch later"}</button>
@@ -162,7 +182,7 @@ function about() {
     <p>LessWrongTube lists the YouTube videos that LessWrong posts and comments keep linking to, from 2006 to May 2026. It was built from a public crawl of ${DATA.length ? "about 46,000 posts and 906,000 comments" : "LessWrong"} (<a href="https://huggingface.co/datasets/x65617379/lesswrong_260509">dataset</a>).</p>
     <p>A video is ranked by how many <em>different people</em> linked it, with karma as a tiebreaker. A video enters the list if at least two people linked it, or one person did in a comment with 15+ karma. Deleted and private videos are dropped.</p>
     <p>Thumbnails are YouTube's automatic frame from the middle of the video, not the uploader's thumbnail. "For you" is computed in your browser from what you liked and watched, using videos shared in the same threads or by the same people. Nothing leaves your browser.</p>
-    <p>Being linked is not being endorsed: some links are critiques. Read the quotes. Code and data: <a href="https://github.com/franklinbaldo/lesswrongtube">github.com/franklinbaldo/lesswrongtube</a>. Inspired by HackerTube.</p></div>`;
+    <p>Being linked is not being endorsed. Claude read the quotes around each link, in batches of 40 videos per call, and labeled the category, whether LessWrong recommends, cites, debates or critiques the video, and a one-line summary. Critiqued videos rank lower. Labels are machine-made: read the quotes. Code and data: <a href="https://github.com/franklinbaldo/lesswrongtube">github.com/franklinbaldo/lesswrongtube</a>. Inspired by HackerTube.</p></div>`;
 }
 
 function route(keepPage) {
@@ -172,6 +192,13 @@ function route(keepPage) {
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("on", a.dataset.r === r));
   if (r === "v") return watch(parts[1]);
   if (r === "about") return about();
+  if (r === "categories") {
+    const html = Object.entries(CATS).map(([k, l]) => {
+      const vs = DATA.filter(v => v.category === k); if (!vs.length) return "";
+      return `<a href="#/top" onclick="cat='${k}'"><div class="thumb">${thumb(vs[0].id)}<span class="badge">${vs.length}</span></div><h3>${l}</h3><div class="meta">${esc(vs.slice(0, 3).map(v => v.title).join(" · "))}</div></a>`;
+    }).join("");
+    document.getElementById("app").innerHTML = `<div class="catgrid">${html}</div>`; return;
+  }
   if (r === "top") {
     const sorts = { score: (a, b) => b.score - a.score, recent: (a, b) => b.last.localeCompare(a.last), classic: (a, b) => a.first.localeCompare(b.first) || b.score - a.score };
     const items = [...DATA].sort(sorts[topSort]);

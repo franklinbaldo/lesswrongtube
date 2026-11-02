@@ -14,7 +14,8 @@ Inspired by [HackerTube](https://hackertube.org), which did the same over Hacker
    - Titles and channels come from YouTube's oEmbed endpoint (no API key). Private and deleted videos drop out there.
    - "Shared alongside" links videos that appear in the same thread (weight 1) or are linked by the same people (weight 0.5), damped by group size.
    - Each video keeps up to three quotes, one per person, with the text around the link, so you can see why it was shared, and whether it was praise or critique.
-4. **Site** (`site/`). One static `index.html` plus `data.json`. Thumbnails are YouTube's automatic frame from the middle of the video (`hq2.jpg`), not the uploader's A/B-tested thumbnail.
+4. **Label** (`pipeline/classify.py`). Claude reads the title, channel and quotes of 40 videos per call and returns, for each, a category (fixed list of 11), the community's stance (recommend / reference / mixed / critique) and a one-line hook. It runs through the `claude` CLI in print mode, so a Claude subscription is enough, no API key. The CLI's own system prompt, tools and MCP servers are switched off, which cuts the fixed cost of a call from ~70k to ~1k tokens. Labels are cached in `data/labels.jsonl`; a rerun only sends what is missing. Labeling all 4,320 videos with Sonnet took about 108 calls, roughly $9 at list prices. `build.py` then ranks critiqued videos lower (x0.4; mixed x0.7, reference x0.85).
+5. **Site** (`site/`). One static `index.html` plus `data.json`. Thumbnails are YouTube's automatic frame from the middle of the video (`hq2.jpg`), not the uploader's A/B-tested thumbnail.
 
 ## Run it
 
@@ -24,6 +25,8 @@ Needs [uv](https://docs.astral.sh/uv/).
 uv run --with huggingface_hub python -c "from huggingface_hub import snapshot_download as s; s('x65617379/lesswrong_260509', repo_type='dataset', local_dir='data/hf')"
 uv run pipeline/extract.py      # data/mentions.parquet
 uv run pipeline/build.py        # site/data.json (oEmbed results cached in data/oembed.jsonl)
+uv run pipeline/classify.py     # labels via `claude -p`; --limit 80 for a pilot, --model haiku to save
+uv run pipeline/build.py        # again, to merge the labels
 python -m http.server -d site   # http://localhost:8000
 ```
 
@@ -31,7 +34,6 @@ Pushing changes under `site/` deploys to GitHub Pages.
 
 ## Ideas
 
-- Classify each mention as recommend / critique / just cite with an LLM, and rank on recommendations only.
 - Durations through the YouTube Data API, for a "longs" shelf.
 - The same pipeline for books, papers and LessWrong's own most-cited posts.
 - Effective Altruism Forum and Alignment Forum run on the same software, so the same crawler works.

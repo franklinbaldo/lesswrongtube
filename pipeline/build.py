@@ -30,6 +30,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 MENTIONS = ROOT / "data" / "mentions.parquet"
 CACHE = ROOT / "data" / "oembed.jsonl"
 OUT = ROOT / "site" / "data.json"
+LABELS = ROOT / "data" / "labels.jsonl"  # written by classify.py
+
+# Being linked is not being endorsed: a talk linked to be refuted ranks lower.
+STANCE_WEIGHT = {"recommend": 1.0, "reference": 0.85, "mixed": 0.7, "critique": 0.4}
 
 # Videos linked as jokes rather than recommendations.
 BLOCKLIST = {"dQw4w9WgXcQ"}
@@ -171,9 +175,17 @@ def main() -> None:
                 sim[a][b] += w
                 sim[b][a] += w
 
+    labels = {}
+    if LABELS.exists():
+        for line in LABELS.read_text(encoding="utf-8").splitlines():
+            if line:
+                row = json.loads(line)
+                labels[row["id"]] = row
+
     videos = []
     for vid, s in live.items():
-        score = s["people"] + 0.5 * math.log1p(s["karma"] or 0)
+        label = labels.get(vid, {})
+        score = (s["people"] + 0.5 * math.log1p(s["karma"] or 0)) * STANCE_WEIGHT.get(label.get("stance"), 1.0)
         q = sorted(quotes[vid], key=lambda x: -x["karma"])
         # one quote per person
         seen, top = set(), []
@@ -192,6 +204,9 @@ def main() -> None:
                 channel=meta[vid]["channel"],
                 channel_url=meta[vid].get("channel_url"),
                 score=round(score, 3),
+                category=label.get("category", "other"),
+                stance=label.get("stance"),
+                hook=label.get("hook"),
                 people=s["people"],
                 mentions=s["mentions"],
                 karma=s["karma"],
